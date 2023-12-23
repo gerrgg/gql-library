@@ -1,6 +1,6 @@
-const Authors = ({ authors }) => {
-  if (!authors.length) return;
+import EditAuthor from "./EditAuthor";
 
+const Authors = ({ authors }) => {
   return (
     <div>
       <h2>authors</h2>
@@ -11,15 +11,18 @@ const Authors = ({ authors }) => {
             <th>born</th>
             <th>books</th>
           </tr>
-          {authors.map((a) => (
-            <tr key={a.name}>
-              <td>{a.name}</td>
-              <td>{a.born}</td>
-              <td>{a.bookCount}</td>
-            </tr>
-          ))}
+          {!authors.length
+            ? null
+            : authors.map((a) => (
+                <tr key={a.name}>
+                  <td>{a.name}</td>
+                  <td>{a.born}</td>
+                  <td>{a.bookCount}</td>
+                </tr>
+              ))}
         </tbody>
       </table>
+      <EditAuthor authors={authors} />
     </div>
   );
 };
