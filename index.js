@@ -1,6 +1,28 @@
 const { ApolloServer } = require("@apollo/server");
 const { startStandaloneServer } = require("@apollo/server/standalone");
 const { v1: uuid } = require("uuid");
+const { GraphQLError } = require("graphql");
+
+const mongoose = require("mongoose");
+mongoose.set("strictQuery", false);
+
+const Book = require("./models/book");
+const Author = require("./models/author");
+
+require("dotenv").config();
+
+const MONGODB_URI = process.env.MONGODB_URI;
+
+console.log("connecting to", MONGODB_URI);
+
+mongoose
+  .connect(MONGODB_URI)
+  .then(() => {
+    console.log("connected to MongoDB");
+  })
+  .catch((error) => {
+    console.log("error connection to MongoDB:", error.message);
+  });
 
 let authors = [
   {
@@ -81,17 +103,16 @@ let books = [
 ];
 
 const typeDefs = `
-
   type Book {
     title: String!
     published: Int!
-    author: String!
+    author: Author!
     genres: [String!]
   }
 
   type Author {
     name: String!
-    born: String
+    born: Int
     bookCount: Int!
   }
 
@@ -119,64 +140,77 @@ const typeDefs = `
 
 const resolvers = {
   Query: {
-    bookCount: () => books.length,
-    authorCount: () => authors.length,
-    allBooks: (root, args) => {
-      let found = [];
+    bookCount: () => Book.collection.countDocuments,
+    authorCount: () => Author.collection.countDocuments,
+    allBooks: async (root, args) => {
+      if (!args.name && !args.genre) {
+        return await Book.find({});
+      }
 
       if (args.name) {
-        books.forEach((b) => {
-          if (b.author === args.name) {
-            found.push(b);
-          }
-        });
-      } else if (args.genre) {
-        books.forEach((b) => {
-          if (b.genres.includes(args.genre)) {
-            found.push(b);
-          }
-        });
+        let author = await Author.findOne({ name: args.name });
+        return await Book.find({ author });
       }
 
-      if (args.name && args.genre) {
-        found = found.filter((b) => b.genres.includes(args.genre));
+      if (args.genre) {
+        return await Book.find({ name: args.genre });
       }
-
-      if (!found.length) {
-        found = books;
-      }
-
-      return found;
     },
-    allAuthors: () => authors,
+    allAuthors: async () => {
+      return await Author.find({});
+    },
   },
   Author: {
-    bookCount: (root) => books.filter((b) => b.author === root.name).length,
+    bookCount: async (root) => {
+      const books = await Book.find({ author: root });
+      return books.length;
+    },
   },
   Mutation: {
-    addBook: (root, args) => {
-      const person = { ...args, id: uuid() };
-      books = books.concat(person);
+    addBook: async (root, args) => {
+      let author = await Author.findOne({ name: args.author });
 
-      const match = authors.find((b) => b.name === args.author);
-      console.log(authors);
-
-      if (!match) {
-        const author = { name: args.author, id: uuid() };
-        authors = authors.concat(author);
+      if (!author) {
+        author = new Author({ name: args.author });
+        await author.save();
       }
 
-      return person;
+      const book = new Book({
+        ...args,
+        author: author.id,
+      });
+
+      try {
+        await book.save();
+      } catch (error) {
+        throw new GraphQLError("Saving book failed.", {
+          extensions: {
+            code: "BAD_USER_INPUT",
+            invalidArgs: args.name,
+            error,
+          },
+        });
+      }
+
+      return book;
     },
-    editBorn: (root, args) => {
-      const author = authors.find((p) => p.name === args.name);
-      if (!author) return null;
+    editBorn: async (root, args) => {
+      const author = await Author.findOne({ name: args.name });
+      author.born = args.born;
 
-      const updatedAuthor = { ...author, born: args.born };
+      try {
+        await author.save();
+      } catch (error) {
+        throw new GraphQLError("Saving born failed.", {
+          extensions: {
+            code: "BAD_USER_INPUT",
+            invalidArgs: args.name,
+            error,
+          },
+        });
+      }
 
-      authors = authors.map((p) => (p.name === args.name ? updatedAuthor : p));
-
-      return updatedAuthor;
+      return author;
     },
   },
 };
